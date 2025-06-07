@@ -1,6 +1,6 @@
 use std::{env, io, sync::{Arc, Mutex}, thread};
 
-use image::{ColorType, DynamicImage, GenericImage, GenericImageView, ImageBuffer, Rgb, Rgba};
+use image::{ColorType, DynamicImage, GenericImage, GenericImageView, Rgb, Rgba};
 
 // rgb↔hsv conversion functions taken from https://gist.github.com/bmgxyz/a5b5b58e492cbca099b468eddd04cc97
 
@@ -82,22 +82,21 @@ fn hsv_reflect(pixel: &Hsv, reflect_angle: f32) -> Hsv {
     Hsv([angle, saturation, value])
 }
 
-fn rgb_conjugate(pixel: &Rgb<u8>) -> Rgb<u8> {
-    let channels = vec![pixel.0[0], pixel.0[1], pixel.0[2]];
-    // idk how to do this better
-    let smallest_channel_value = *channels.iter().min().unwrap();
-    let smallest_channel = channels.iter().position(|&p| p == smallest_channel_value).unwrap();
+// swap the two largest or smallest color channels
+// true for largest
+// false for smallest
+fn rgb_conjugate(pixel: &Rgb<u8>, minmax: bool) -> Rgb<u8> {
+    let mut sorted: Vec<u8> = pixel.0.to_vec();
+    sorted.sort();
+    let sorted = sorted;
 
-    let mut new_pixel = Rgb([0; 3]);
-
-    match smallest_channel {
-        0 => {new_pixel.0[0] = pixel.0[0]; new_pixel.0[1] = pixel.0[2]; new_pixel.0[2] = pixel.0[1]},
-        1 => {new_pixel.0[0] = pixel.0[2]; new_pixel.0[1] = pixel.0[1]; new_pixel.0[2] = pixel.0[0]},
-        2 => {new_pixel.0[0] = pixel.0[1]; new_pixel.0[1] = pixel.0[0]; new_pixel.0[2] = pixel.0[2]},
-        _ => (),
+    let channel_position = pixel.0.iter().position(|&p| p == sorted[match minmax {true => 0, false => 2}]).unwrap();
+    match channel_position {
+        0 => return Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]),
+        1 => return Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]),
+        2 => return Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]),
+        _ => return Rgb([0, 0, 0]),
     }
-
-    return new_pixel
 }
 
 fn main() {
@@ -118,14 +117,15 @@ fn main() {
 
     println!("Image loaded in {}ms", timer.elapsed().as_millis());
 
-    let mut selection: u8 = 0;
+    let mut selection: u8;
     loop {
         println!("Select Operation");
         println!("1: Hue Reflection, reflect the color wheel around an angle");
-        println!("2: Color Conjugate, swap the greater two color channels");
+        println!("2: Greater Color Conjugate, swap the larger two color channels");
+        println!("3: Lesser Color Conjugate, swap the smaller two color channels");
         selection = inputu8();
         match selection {
-            1..=2 => break,
+            1..=3 => break,
             _ => continue, // absolutely do not allow invalid inputs
         }
     }
@@ -139,6 +139,8 @@ fn main() {
     let reflect_angle = reflect_angle;
 
     let mut handles: Vec<thread::JoinHandle<()>> = Vec::new();
+
+    let timer = std::time::Instant::now();
 
     println!("Processing...");
     // process main image
@@ -158,9 +160,15 @@ fn main() {
                             let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
                             new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
                         }
-                        2 => { // color conjugation
+                        2 => { // greater color conjugation
                             let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
-                            let new_rgb = rgb_conjugate(&pxl);
+                            let new_rgb = rgb_conjugate(&pxl, true);
+                            let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
+                            new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
+                        }
+                        3 => { // lesser color conjugation
+                            let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
+                            let new_rgb = rgb_conjugate(&pxl, false);
                             let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
                             new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
                         }
