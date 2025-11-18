@@ -82,39 +82,28 @@ fn hsv_reflect(pixel: &Hsv, reflect_angle: f32) -> Hsv {
     Hsv([angle, saturation, value])
 }
 
-fn hue_lerp(pixel: &Hsv, points: Vec<(f32, f32)>) -> Hsv {
-    //given inputs from 0.0 to 360.0, apply a partwise linear function defined by input points
-    return Hsv([0.0;3])
-}
-
+// swap the two largest or smallest color channels
+// true for largest
+// false for smallest
 fn rgb_conjugate(pixel: &Rgb<u8>, minmax: bool) -> Rgb<u8> {
-    let channels = vec![pixel.0[0], pixel.0[1], pixel.0[2]];
-    // idk how to do this better
-    let channel_value: u8;
-    match minmax {
-        true => channel_value = *channels.iter().max().unwrap(),
-        false => channel_value = *channels.iter().min().unwrap(),
+    let mut sorted: Vec<u8> = pixel.0.to_vec();
+    sorted.sort();
+    let sorted = sorted;
+
+    let channel_position = pixel.0.iter().position(|&p| p == sorted[match minmax {true => 0, false => 2}]).unwrap();
+    match channel_position {
+        0 => return Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]),
+        1 => return Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]),
+        2 => return Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]),
+        _ => return Rgb([0, 0, 0]),
     }
-    let smallest_channel = channels.iter().position(|&p| p == channel_value).unwrap();
-
-    let mut new_pixel = Rgb([0; 3]);
-
-    match smallest_channel {
-        0 => {new_pixel.0[0] = pixel.0[0]; new_pixel.0[1] = pixel.0[2]; new_pixel.0[2] = pixel.0[1]}, //swaps g and b
-        1 => {new_pixel.0[0] = pixel.0[2]; new_pixel.0[1] = pixel.0[1]; new_pixel.0[2] = pixel.0[0]}, //swaps r and b
-        2 => {new_pixel.0[0] = pixel.0[1]; new_pixel.0[1] = pixel.0[0]; new_pixel.0[2] = pixel.0[2]}, //swaps r and g
-        _ => (),
-    }
-
-    return new_pixel
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         println!("Usage: input a file path");
-        println!("Example: cargo run -- folder/filename.png");
-        inputstr();
+        println!("Example: cargo run -- folder/imgname.png");
         return;
     }
 
@@ -132,11 +121,11 @@ fn main() {
     loop {
         println!("Select Operation");
         println!("1: Hue Reflection, reflect the color wheel around an angle");
-        println!("2: Greater Color Conjugate, swap the greater two color channels");
-        println!("3: Lesser Color Conjugate")
+        println!("2: Greater Color Conjugate, swap the larger two color channels");
+        println!("3: Lesser Color Conjugate, swap the smaller two color channels");
         selection = inputu8();
         match selection {
-            1..=2 => break,
+            1..=3 => break,
             _ => continue, // absolutely do not allow invalid inputs
         }
     }
@@ -150,6 +139,8 @@ fn main() {
     let reflect_angle = reflect_angle;
 
     let mut handles: Vec<thread::JoinHandle<()>> = Vec::new();
+
+    let timer = std::time::Instant::now();
 
     println!("Processing...");
     // process main image
@@ -169,9 +160,15 @@ fn main() {
                             let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
                             new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
                         }
-                        2 => { // color conjugation
+                        2 => { // greater color conjugation
                             let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
-                            let new_rgb = rgb_conjugate(&pxl);
+                            let new_rgb = rgb_conjugate(&pxl, true);
+                            let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
+                            new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
+                        }
+                        3 => { // lesser color conjugation
+                            let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
+                            let new_rgb = rgb_conjugate(&pxl, false);
                             let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
                             new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
                         }
