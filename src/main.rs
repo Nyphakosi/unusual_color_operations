@@ -1,6 +1,6 @@
 use std::{env, io, sync::{Arc, Mutex}, thread};
 
-use image::{ColorType, DynamicImage, GenericImage, GenericImageView, ImageBuffer, Rgb, Rgba};
+use image::{ColorType, DynamicImage, GenericImage, GenericImageView, Rgb, Rgba};
 
 // rgb↔hsv conversion functions taken from https://gist.github.com/bmgxyz/a5b5b58e492cbca099b468eddd04cc97
 
@@ -82,18 +82,27 @@ fn hsv_reflect(pixel: &Hsv, reflect_angle: f32) -> Hsv {
     Hsv([angle, saturation, value])
 }
 
-fn rgb_conjugate(pixel: &Rgb<u8>) -> Rgb<u8> {
+fn hue_lerp(pixel: &Hsv, points: Vec<(f32, f32)>) -> Hsv {
+    //given inputs from 0.0 to 360.0, apply a partwise linear function defined by input points
+    return Hsv([0.0;3])
+}
+
+fn rgb_conjugate(pixel: &Rgb<u8>, minmax: bool) -> Rgb<u8> {
     let channels = vec![pixel.0[0], pixel.0[1], pixel.0[2]];
     // idk how to do this better
-    let smallest_channel_value = *channels.iter().min().unwrap();
-    let smallest_channel = channels.iter().position(|&p| p == smallest_channel_value).unwrap();
+    let channel_value: u8;
+    match minmax {
+        true => channel_value = *channels.iter().max().unwrap(),
+        false => channel_value = *channels.iter().min().unwrap(),
+    }
+    let smallest_channel = channels.iter().position(|&p| p == channel_value).unwrap();
 
     let mut new_pixel = Rgb([0; 3]);
 
     match smallest_channel {
-        0 => {new_pixel.0[0] = pixel.0[0]; new_pixel.0[1] = pixel.0[2]; new_pixel.0[2] = pixel.0[1]},
-        1 => {new_pixel.0[0] = pixel.0[2]; new_pixel.0[1] = pixel.0[1]; new_pixel.0[2] = pixel.0[0]},
-        2 => {new_pixel.0[0] = pixel.0[1]; new_pixel.0[1] = pixel.0[0]; new_pixel.0[2] = pixel.0[2]},
+        0 => {new_pixel.0[0] = pixel.0[0]; new_pixel.0[1] = pixel.0[2]; new_pixel.0[2] = pixel.0[1]}, //swaps g and b
+        1 => {new_pixel.0[0] = pixel.0[2]; new_pixel.0[1] = pixel.0[1]; new_pixel.0[2] = pixel.0[0]}, //swaps r and b
+        2 => {new_pixel.0[0] = pixel.0[1]; new_pixel.0[1] = pixel.0[0]; new_pixel.0[2] = pixel.0[2]}, //swaps r and g
         _ => (),
     }
 
@@ -104,7 +113,8 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         println!("Usage: input a file path");
-        println!("Example: cargo run -- folder/imgname.png");
+        println!("Example: cargo run -- folder/filename.png");
+        inputstr();
         return;
     }
 
@@ -118,11 +128,12 @@ fn main() {
 
     println!("Image loaded in {}ms", timer.elapsed().as_millis());
 
-    let mut selection: u8 = 0;
+    let mut selection: u8;
     loop {
         println!("Select Operation");
         println!("1: Hue Reflection, reflect the color wheel around an angle");
-        println!("2: Color Conjugate, swap the greater two color channels");
+        println!("2: Greater Color Conjugate, swap the greater two color channels");
+        println!("3: Lesser Color Conjugate")
         selection = inputu8();
         match selection {
             1..=2 => break,
