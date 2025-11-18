@@ -83,6 +83,7 @@ fn hsv_reflect(pixel: &Hsv, reflect_angle: f32) -> Hsv {
 }
 
 fn hue_lerp(pixel: &Hsv, points: Vec<(f32, f32)>) -> Hsv {
+    // a function with domain and range of 0 to 360, where given a set of points will use a partwise linear function to change hues
     return Hsv([0.0; 3])
 }
 
