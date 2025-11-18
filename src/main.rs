@@ -82,6 +82,10 @@ fn hsv_reflect(pixel: &Hsv, reflect_angle: f32) -> Hsv {
     Hsv([angle, saturation, value])
 }
 
+fn hue_lerp(pixel: &Hsv, points: Vec<(f32, f32)>) -> Hsv {
+    return Hsv([0.0; 3])
+}
+
 // swap the two largest or smallest color channels
 // true for largest
 // false for smallest
@@ -92,9 +96,9 @@ fn rgb_conjugate(pixel: &Rgb<u8>, minmax: bool) -> Rgb<u8> {
 
     let channel_position = pixel.0.iter().position(|&p| p == sorted[match minmax {true => 0, false => 2}]).unwrap();
     match channel_position {
-        0 => return Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]),
-        1 => return Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]),
-        2 => return Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]),
+        0 => return Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]), // swaps g and b
+        1 => return Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]), // swaps r and b
+        2 => return Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]), // swaps r and g
         _ => return Rgb([0, 0, 0]),
     }
 }
@@ -104,6 +108,7 @@ fn main() {
     if args.len() != 2 {
         println!("Usage: input a file path");
         println!("Example: cargo run -- folder/imgname.png");
+        inputstr();
         return;
     }
 
