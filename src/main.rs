@@ -155,7 +155,7 @@ fn main() {
         println!("4: Lesser Color Conjugate, swap the smaller two color channels");
         selection = inputu8();
         match selection {
-            1..=3 => break,
+            1..=4 => break,
             _ => continue, // absolutely do not allow invalid inputs
         }
     }
