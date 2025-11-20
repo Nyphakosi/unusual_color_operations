@@ -41,21 +41,21 @@ fn hsv_to_rgb(pixel: &Hsv) -> Rgb<u8> {
         hue / 60.
     };
     let (r, g, b) = match h_prime {
-        x if -1. <= x && x < 1. => {
+        x if (-1. ..1.).contains(&x) => {
             if h_prime < 0. {
                 (max, min, min - h_prime * c)
             } else {
                 (max, min + h_prime * c, min)
             }
         }
-        x if 1. <= x && x < 3. => {
+        x if (1. ..3.).contains(&x) => {
             if h_prime < 2. {
                 (min - (h_prime - 2.) * c, max, min)
             } else {
                 (min, max, min + (h_prime - 2.) * c)
             }
         }
-        x if 3. <= x && x < 5. => {
+        x if (3. ..5.).contains(&x) => {
             if h_prime < 4. {
                 (min, min - (h_prime - 4.) * c, max)
             } else {
@@ -82,10 +82,29 @@ fn hsv_reflect(pixel: &Hsv, reflect_angle: f32) -> Hsv {
     Hsv([angle, saturation, value])
 }
 
-fn hue_lerp(pixel: &Hsv, points: Vec<(f32, f32)>) -> Hsv {
-    // a function with domain and range of 0 to 360, where given a set of points will use a partwise linear function to change hues
-    return Hsv([0.0; 3])
+fn hue_function(pixel: &Hsv, f: impl Fn(f32)->f32) -> Hsv {
+    Hsv([f(pixel.0[0]), pixel.0[1], pixel.0[2]])
 }
+fn linear_piece_any(points: Vec<(f32, f32)>) -> fn(f32)->f32 {
+    unimplemented!()
+}
+fn linear_piece_two(p1: (f32, f32), p2: (f32, f32)) -> impl Fn(f32)->f32 {
+    // takes in two points and creates a partwise linear function between them both ways, modulo 360
+    // assumes p1.x < p2.x
+    let slope_lowhigh = (p2.1-p1.1)/(p2.0-p1.0);
+    let slope_highlow = (p1.1-p2.1-360.)/(p1.0-p2.0-360.);
+    let lowhigh_bias = p1.1 - slope_lowhigh * p1.0;
+    let highlow_bias = p2.1 - slope_highlow * p2.0;
+    move |x| {
+        if (p1.0 ..p2.0).contains(&x) {
+            (x * slope_lowhigh + lowhigh_bias).rem_euclid(360.)
+        } else {
+            (x * slope_highlow + highlow_bias).rem_euclid(360.)
+        }
+    }
+}
+
+const IDENTITY: fn(f32)->f32 = |x| x;
 
 // swap the two largest or smallest color channels
 // true for largest
@@ -97,14 +116,15 @@ fn rgb_conjugate(pixel: &Rgb<u8>, minmax: bool) -> Rgb<u8> {
 
     let channel_position = pixel.0.iter().position(|&p| p == sorted[match minmax {true => 0, false => 2}]).unwrap();
     match channel_position {
-        0 => return Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]), // swaps g and b
-        1 => return Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]), // swaps r and b
-        2 => return Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]), // swaps r and g
-        _ => return Rgb([0, 0, 0]),
+        0 => Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]), // swaps g and b
+        1 => Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]), // swaps r and b
+        2 => Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]), // swaps r and g
+        _ => Rgb([0, 0, 0]),
     }
 }
 
 fn main() {
+
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         println!("Usage: input a file path");
@@ -127,8 +147,9 @@ fn main() {
     loop {
         println!("Select Operation");
         println!("1: Hue Reflection, reflect the color wheel around an angle");
-        println!("2: Greater Color Conjugate, swap the larger two color channels");
-        println!("3: Lesser Color Conjugate, swap the smaller two color channels");
+        println!("2: Phos' Operation, 120°→165° and 300°→285°");
+        println!("3: Greater Color Conjugate, swap the larger two color channels");
+        println!("4: Lesser Color Conjugate, swap the smaller two color channels");
         selection = inputu8();
         match selection {
             1..=3 => break,
@@ -157,23 +178,28 @@ fn main() {
             handles.push(thread::spawn(move || {
                 for x in 0..width {
                     let pixel = img_clone.get_pixel(x, y*core_count+y_inner);
+                    let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
                     match selection {
                         1 => { // hue reflection
-                            let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
                             let hsv = rgb_to_hsv(&pxl);
                             let new_hsv = hsv_reflect(&hsv, reflect_angle);
                             let new_rgb = hsv_to_rgb(&new_hsv);
                             let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
                             new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
                         }
-                        2 => { // greater color conjugation
-                            let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
+                        2 => { // phos' operation
+                            let hsv = rgb_to_hsv(&pxl);
+                            let new_hsv = hue_function(&hsv, linear_piece_two((120., 165.), (300., 285.)));
+                            let new_rgb = hsv_to_rgb(&new_hsv);
+                            let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
+                            new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
+                        }
+                        3 => { // greater color conjugation
                             let new_rgb = rgb_conjugate(&pxl, true);
                             let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
                             new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
                         }
-                        3 => { // lesser color conjugation
-                            let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
+                        4 => { // lesser color conjugation
                             let new_rgb = rgb_conjugate(&pxl, false);
                             let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
                             new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
