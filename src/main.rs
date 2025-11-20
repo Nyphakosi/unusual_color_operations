@@ -68,38 +68,43 @@ fn hsv_to_rgb(pixel: &Hsv) -> Rgb<u8> {
 }
 
 // hue reflection algorithm
-fn hsv_reflect(pixel: &Hsv, reflect_angle: f32) -> Hsv {
-    let [hue, saturation, value] = [pixel.0[0], pixel.0[1], pixel.0[2]];
+// fn hue_reflect(pixel: &Hsv, reflect_angle: f32) -> Hsv {
+//     let [hue, saturation, value] = [pixel.0[0], pixel.0[1], pixel.0[2]];
+//     // for a hue angle C and reflection angle A
+//     // align angle to the 0 degree line by subtracting reflection angle
+//     // subtract from 360 to flip, add back reflection angle to realign
+//     // output angle is 360-(C-A)+A mod 360
+//     // or, 360-C+2A mod 360
+//     // and with algebra, 2A-C mod 360
+//     let angle = (2.0*reflect_angle - hue).rem_euclid(360.0);
+//     Hsv([angle, saturation, value])
+// }
 
-    // for a hue angle C and reflection angle A
+fn angle_reflect(reflect_angle: f32) -> impl Fn(f32)->f32 + Send + 'static {
+    // for an input angle C and reflection angle A
     // align angle to the 0 degree line by subtracting reflection angle
     // subtract from 360 to flip, add back reflection angle to realign
     // output angle is 360-(C-A)+A mod 360
     // or, 360-C+2A mod 360
     // and with algebra, 2A-C mod 360
-    let angle = (2.0*reflect_angle - hue).rem_euclid(360.0);
-
-    Hsv([angle, saturation, value])
-}
-
-fn hue_function(pixel: &Hsv, f: impl Fn(f32)->f32) -> Hsv {
-    Hsv([f(pixel.0[0]), pixel.0[1], pixel.0[2]])
+    move |x| (2.0*reflect_angle - x).rem_euclid(360.0)
 }
 fn linear_piece_any(points: Vec<(f32, f32)>) -> fn(f32)->f32 {
-    unimplemented!()
+    // same as linear_piece_two, but with an arbitrary number of points
+    todo!();
 }
-fn linear_piece_two(p1: (f32, f32), p2: (f32, f32)) -> impl Fn(f32)->f32 {
+fn linear_piece_two(p1: (f32, f32), p2: (f32, f32)) -> impl Fn(f32)->f32 + Send + 'static {
     // takes in two points and creates a partwise linear function between them both ways, modulo 360
-    // assumes p1.x < p2.x
-    let slope_lowhigh = (p2.1-p1.1)/(p2.0-p1.0);
-    let slope_highlow = (p1.1+360.-p2.1)/(p1.0+360.-p2.0);
-    let lowhigh_bias = p1.1 - slope_lowhigh * p1.0;
-    let highlow_bias_first = p1.1 - slope_highlow * p1.0;
-    let highlow_bias_second = p2.1 - slope_highlow * p2.0;
+    let (a,b) = if p1.0 < p2.0 {(p1, p2)} else {(p2, p1)};
+    let slope_lowhigh = (b.1-a.1)/(b.0-a.0);
+    let slope_highlow = (a.1+360.-b.1)/(a.0+360.-b.0);
+    let lowhigh_bias = a.1 - slope_lowhigh * a.0;
+    let highlow_bias_first = a.1 - slope_highlow * a.0;
+    let highlow_bias_second = b.1 - slope_highlow * b.0;
     move |x| {
-        if x < p1.0 {
+        if x < a.0 {
             (x * slope_highlow + highlow_bias_first).rem_euclid(360.)
-        } else if (p1.0 ..p2.0).contains(&x) {
+        } else if (a.0 ..b.0).contains(&x) {
             (x * slope_lowhigh + lowhigh_bias).rem_euclid(360.)
         } else {
             (x * slope_highlow + highlow_bias_second).rem_euclid(360.)
@@ -107,31 +112,28 @@ fn linear_piece_two(p1: (f32, f32), p2: (f32, f32)) -> impl Fn(f32)->f32 {
     }
 }
 
-const IDENTITY: fn(f32)->f32 = |x| x;
-
 // swap the two largest or smallest color channels
 // true for largest
 // false for smallest
-fn rgb_conjugate(pixel: &Rgb<u8>, minmax: bool) -> Rgb<u8> {
-    let mut sorted: Vec<u8> = pixel.0.to_vec();
-    sorted.sort();
-    let sorted = sorted;
-
-    let channel_position = pixel.0.iter().position(|&p| p == sorted[match minmax {true => 0, false => 2}]).unwrap();
-    match channel_position {
-        0 => Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]), // swaps g and b
-        1 => Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]), // swaps r and b
-        2 => Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]), // swaps r and g
-        _ => Rgb([0, 0, 0]),
-    }
-}
+// fn rgb_conjugate(pixel: &Rgb<u8>, minmax: bool) -> Rgb<u8> {
+//     let mut sorted: Vec<u8> = pixel.0.to_vec();
+//     sorted.sort();
+//     let sorted = sorted;
+//     let channel_position = pixel.0.iter().position(|&p| p == sorted[match minmax {true => 0, false => 2}]).unwrap();
+//     match channel_position {
+//         0 => Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]), // swaps g and b
+//         1 => Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]), // swaps r and b
+//         2 => Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]), // swaps r and g
+//         _ => Rgb([0, 0, 0]),
+//     }
+// }
 
 fn main() {
 
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         println!("Usage: input a file path");
-        println!("Example: cargo run -- folder/imgname.png");
+        println!("Example: cargo run -- folder/imgname.png 2");
         inputstr();
         return;
     }
@@ -151,11 +153,11 @@ fn main() {
         println!("Select Operation");
         println!("1: Hue Reflection, reflect the color wheel around an angle");
         println!("2: Phos' Operation, 120°→165° and 300°→285°");
-        println!("3: Greater Color Conjugate, swap the larger two color channels");
-        println!("4: Lesser Color Conjugate, swap the smaller two color channels");
+        // println!("3: Greater Color Conjugate, swap the larger two color channels");
+        // println!("4: Lesser Color Conjugate, swap the smaller two color channels");
         selection = inputu8();
         match selection {
-            1..=4 => break,
+            1..=2 => break,
             _ => continue, // absolutely do not allow invalid inputs
         }
     }
@@ -172,43 +174,56 @@ fn main() {
 
     let timer = std::time::Instant::now();
 
+    let operation: Arc<dyn Fn(f32)->f32 + Send + Sync + 'static> = match selection {
+        1 => Arc::new(angle_reflect(reflect_angle)),
+        2 => Arc::new(linear_piece_two((120., 165.), (300., 285.))),
+        _ => unreachable!(),
+    };
+
     println!("Processing...");
     // process main image
     for y in 0..height/core_count {
         for y_inner in 0..core_count { // divide image rows by number of cores in device
             let img_clone = Arc::clone(&img);
             let new_img_clone = Arc::clone(&new_img);
+            let thread_operation = operation.clone();
             handles.push(thread::spawn(move || {
                 for x in 0..width {
                     let pixel = img_clone.get_pixel(x, y*core_count+y_inner);
                     let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
-                    match selection {
-                        1 => { // hue reflection
-                            let hsv = rgb_to_hsv(&pxl);
-                            let new_hsv = hsv_reflect(&hsv, reflect_angle);
-                            let new_rgb = hsv_to_rgb(&new_hsv);
-                            let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                            new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
-                        }
-                        2 => { // phos' operation
-                            let hsv = rgb_to_hsv(&pxl);
-                            let new_hsv = hue_function(&hsv, linear_piece_two((120., 165.), (300., 285.)));
-                            let new_rgb = hsv_to_rgb(&new_hsv);
-                            let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                            new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
-                        }
-                        3 => { // greater color conjugation
-                            let new_rgb = rgb_conjugate(&pxl, true);
-                            let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                            new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
-                        }
-                        4 => { // lesser color conjugation
-                            let new_rgb = rgb_conjugate(&pxl, false);
-                            let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                            new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
-                        }
-                        _ => unreachable!(),
-                    }
+                    let hsv = rgb_to_hsv(&pxl);
+
+                    let new_hsv = Hsv([thread_operation(hsv.0[0]), hsv.0[1], hsv.0[2]]);
+                    let new_rgb = hsv_to_rgb(&new_hsv);
+                    let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
+                    new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
+                    // match selection {
+                    //     1 => { // hue reflection
+                    //         let hsv = rgb_to_hsv(&pxl);
+                    //         let new_hsv = hue_reflect(&hsv, reflect_angle);
+                    //         let new_rgb = hsv_to_rgb(&new_hsv);
+                    //         let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
+                    //         new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
+                    //     }
+                    //     2 => { // phos' operation
+                    //         let hsv = rgb_to_hsv(&pxl);
+                    //         let new_hsv = hue_function(&hsv, linear_piece_two((120., 165.), (300., 285.)));
+                    //         let new_rgb = hsv_to_rgb(&new_hsv);
+                    //         let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
+                    //         new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
+                    //     }
+                    //     3 => { // greater color conjugation
+                    //         let new_rgb = rgb_conjugate(&pxl, true);
+                    //         let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
+                    //         new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
+                    //     }
+                    //     4 => { // lesser color conjugation
+                    //         let new_rgb = rgb_conjugate(&pxl, false);
+                    //         let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
+                    //         new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
+                    //     }
+                    //     _ => unreachable!(),
+                    // }
                 }
             }));
         }
@@ -220,7 +235,7 @@ fn main() {
             let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
             let hsv = rgb_to_hsv(&pxl);
 
-            let new_hsv = hsv_reflect(&hsv, reflect_angle);
+            let new_hsv = Hsv([operation(hsv.0[0]), hsv.0[1], hsv.0[2]]);
             let new_rgb = hsv_to_rgb(&new_hsv);
             let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
             new_img.lock().unwrap().put_pixel(x, y, new_pixel);
