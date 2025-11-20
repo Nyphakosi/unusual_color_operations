@@ -77,9 +77,32 @@ fn angle_reflect(reflect_angle: f32) -> impl Fn(f32)->f32 + Send + 'static {
     // and with algebra, 2A-C mod 360
     move |x| (2.0*reflect_angle - x).rem_euclid(360.0)
 }
-fn linear_piece_any(points: Vec<(f32, f32)>) -> impl Fn(f32)->f32 {
-    todo!();
-    |x| x
+fn linear_piece_any(points: Vec<(f32, f32)>) -> impl Fn(f32)->f32 + Send + 'static {
+    let mut points = points.clone();
+    let l = points.len();
+    points.sort_by(|a, b| a.0.total_cmp(&b.0)); // order by x coordinate
+    let mut slopes: Vec<(f32,f32)> = Vec::new(); // the first and last slopes go over the modulo
+    let mut prev_point: (f32, f32) = points[points.len()-1]; // get the last point
+    points.insert(0, (prev_point.0 - 360.0, prev_point.1 - 360.0)); // shift the last point leftward before the modulo
+    let points = points;
+    for point in &points { // compute the slope between every point, and bias using the first point as reference
+        let slope: f32 = (point.1 - prev_point.1) / (point.0 - prev_point.0);
+        let bias = prev_point.1 - slope * prev_point.0;
+        slopes.push((slope, bias));
+        prev_point = *point;
+    }
+    slopes.push((slopes[0].0, prev_point.1 - slopes[0].0 * prev_point.0)); // use precomputed slope, but without shift for bias
+    let slopes = slopes;
+    
+    move |x| {
+        let mut index: usize = 0;
+        for i in 0..(l-1) {
+            if x >= points[i].0 && x < points[i+1].0 {
+                index = i; break;
+            }
+        }
+        x * slopes[index].0 + slopes[index].1
+    }
 }
 fn linear_piece_two(p1: (f32, f32), p2: (f32, f32)) -> impl Fn(f32)->f32 + Send + 'static {
     // takes in two points and creates a partwise linear function between them both ways, modulo 360
@@ -103,25 +126,28 @@ fn linear_piece_two(p1: (f32, f32), p2: (f32, f32)) -> impl Fn(f32)->f32 + Send 
 // swap the two largest or smallest color channels
 // true for largest
 // false for smallest
-// fn rgb_conjugate(pixel: &Rgb<u8>, minmax: bool) -> Rgb<u8> {
-//     let mut sorted: Vec<u8> = pixel.0.to_vec();
-//     sorted.sort();
-//     let sorted = sorted;
-//     let channel_position = pixel.0.iter().position(|&p| p == sorted[match minmax {true => 0, false => 2}]).unwrap();
-//     match channel_position {
-//         0 => Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]), // swaps g and b
-//         1 => Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]), // swaps r and b
-//         2 => Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]), // swaps r and g
-//         _ => Rgb([0, 0, 0]),
-//     }
-// }
+fn rgb_conjugate(pixel: &Rgb<u8>, minmax: bool) -> Rgb<u8> {
+    let mut sorted: Vec<u8> = pixel.0.to_vec();
+    sorted.sort();
+    let sorted = sorted;
+
+    let channel_position = pixel.0.iter().position(|&p| p == sorted[match minmax {true => 0, false => 2}]).unwrap();
+    match channel_position {
+        0 => Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]), // swaps g and b
+        1 => Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]), // swaps r and b
+        2 => Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]), // swaps r and g
+        _ => Rgb([0, 0, 0]),
+    }
+}
+
+const IDENTITY: fn(f32)->f32 = |x| x;
 
 fn main() {
 
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         println!("Usage: input a file path");
-        println!("Example: cargo run -- folder/imgname.png 2");
+        println!("Example: cargo run -- folder/imgname.png");
         inputstr();
         return;
     }
@@ -142,11 +168,12 @@ fn main() {
         println!("1: Hue Reflection, reflect the color wheel around an angle");
         println!("2: Phos' Operation, 120°→165° and 300°→285°");
         println!("3: Two Point Shift, same as above but for any two input points");
+        println!("4: N Point Shift, same as above but for any input points");
         println!("-1: Greater Color Conjugate, swap the larger two color channels");
         println!("-2: Lesser Color Conjugate, swap the smaller two color channels");
         selection = inputi8();
         match selection {
-            -2..=3 => break,
+            -2..=4 => break,
             _ => continue, // absolutely do not allow invalid inputs
         }
     }
@@ -154,6 +181,7 @@ fn main() {
 
     let mut reflect_angle: f32 = 0.0;
     let mut two_point: ((f32,f32),(f32,f32)) = ((0.0,0.0),(0.0,0.0));
+    let mut n_points: Vec<(f32, f32)> = Vec::new();
     match selection {
         1 => {
             println!("Input Reflection Angle:");
@@ -170,6 +198,16 @@ fn main() {
             let tp11 = inputf32();
             two_point = ((tp00,tp01),(tp10,tp11));
         }
+        4 => {
+            println!("Input any number of points within the rectangle (0,0) to (360,360)");
+            println!("Input point (-1,-1) to stop");
+            loop {
+                let px = inputf32();
+                let py = inputf32();
+                if px == -1. && py == -1. { break }
+                n_points.push((px,py));
+            }
+        }
         _ => ()
     } 
     let reflect_angle = reflect_angle;
@@ -183,6 +221,7 @@ fn main() {
         1 => Arc::new(angle_reflect(reflect_angle)),
         2 => Arc::new(linear_piece_two((120., 165.), (300., 285.))),
         3 => Arc::new(linear_piece_two(two_point.0, two_point.1)),
+        4 => Arc::new(linear_piece_any(n_points)),
         _ => Arc::new(IDENTITY),
     };
 
@@ -198,7 +237,7 @@ fn main() {
                     let pixel = img_clone.get_pixel(x, y*core_count+y_inner);
                     let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
                     match selection {
-                        (1..=3) => { // hue reflection, phos' operation, two point shift
+                        (1..=4) => { // hue reflection, phos' operation, two point shift
                             let hsv = rgb_to_hsv(&pxl);
                             let new_hsv = Hsv([inloop_operation(hsv.0[0]), hsv.0[1], hsv.0[2]]);
                             let new_rgb = hsv_to_rgb(&new_hsv);
@@ -222,7 +261,7 @@ fn main() {
             let pixel = img.get_pixel(x, y);
             let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
             match selection {
-                (1..=3) => {
+                (1..=4) => {
                     let hsv = rgb_to_hsv(&pxl);
                     let new_hsv = Hsv([operation(hsv.0[0]), hsv.0[1], hsv.0[2]]);
                     let new_rgb = hsv_to_rgb(&new_hsv);
