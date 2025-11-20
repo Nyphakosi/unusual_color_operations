@@ -92,14 +92,17 @@ fn linear_piece_two(p1: (f32, f32), p2: (f32, f32)) -> impl Fn(f32)->f32 {
     // takes in two points and creates a partwise linear function between them both ways, modulo 360
     // assumes p1.x < p2.x
     let slope_lowhigh = (p2.1-p1.1)/(p2.0-p1.0);
-    let slope_highlow = (p1.1-p2.1-360.)/(p1.0-p2.0-360.);
+    let slope_highlow = (p1.1+360.-p2.1)/(p1.0+360.-p2.0);
     let lowhigh_bias = p1.1 - slope_lowhigh * p1.0;
-    let highlow_bias = p2.1 - slope_highlow * p2.0;
+    let highlow_bias_first = p1.1 - slope_highlow * p1.0;
+    let highlow_bias_second = p2.1 - slope_highlow * p2.0;
     move |x| {
-        if (p1.0 ..p2.0).contains(&x) {
+        if x < p1.0 {
+            (x * slope_highlow + highlow_bias_first).rem_euclid(360.)
+        } else if (p1.0 ..p2.0).contains(&x) {
             (x * slope_lowhigh + lowhigh_bias).rem_euclid(360.)
         } else {
-            (x * slope_highlow + highlow_bias).rem_euclid(360.)
+            (x * slope_highlow + highlow_bias_second).rem_euclid(360.)
         }
     }
 }
