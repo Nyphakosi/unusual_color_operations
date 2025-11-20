@@ -112,22 +112,6 @@ fn linear_piece_two(p1: (f32, f32), p2: (f32, f32)) -> impl Fn(f32)->f32 + Send 
     }
 }
 
-// swap the two largest or smallest color channels
-// true for largest
-// false for smallest
-// fn rgb_conjugate(pixel: &Rgb<u8>, minmax: bool) -> Rgb<u8> {
-//     let mut sorted: Vec<u8> = pixel.0.to_vec();
-//     sorted.sort();
-//     let sorted = sorted;
-//     let channel_position = pixel.0.iter().position(|&p| p == sorted[match minmax {true => 0, false => 2}]).unwrap();
-//     match channel_position {
-//         0 => Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]), // swaps g and b
-//         1 => Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]), // swaps r and b
-//         2 => Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]), // swaps r and g
-//         _ => Rgb([0, 0, 0]),
-//     }
-// }
-
 fn main() {
 
     let args: Vec<String> = env::args().collect();
@@ -153,8 +137,6 @@ fn main() {
         println!("Select Operation");
         println!("1: Hue Reflection, reflect the color wheel around an angle");
         println!("2: Phos' Operation, 120°→165° and 300°→285°");
-        // println!("3: Greater Color Conjugate, swap the larger two color channels");
-        // println!("4: Lesser Color Conjugate, swap the smaller two color channels");
         selection = inputu8();
         match selection {
             1..=2 => break,
@@ -197,33 +179,6 @@ fn main() {
                     let new_rgb = hsv_to_rgb(&new_hsv);
                     let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
                     new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
-                    // match selection {
-                    //     1 => { // hue reflection
-                    //         let hsv = rgb_to_hsv(&pxl);
-                    //         let new_hsv = hue_reflect(&hsv, reflect_angle);
-                    //         let new_rgb = hsv_to_rgb(&new_hsv);
-                    //         let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                    //         new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
-                    //     }
-                    //     2 => { // phos' operation
-                    //         let hsv = rgb_to_hsv(&pxl);
-                    //         let new_hsv = hue_function(&hsv, linear_piece_two((120., 165.), (300., 285.)));
-                    //         let new_rgb = hsv_to_rgb(&new_hsv);
-                    //         let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                    //         new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
-                    //     }
-                    //     3 => { // greater color conjugation
-                    //         let new_rgb = rgb_conjugate(&pxl, true);
-                    //         let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                    //         new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
-                    //     }
-                    //     4 => { // lesser color conjugation
-                    //         let new_rgb = rgb_conjugate(&pxl, false);
-                    //         let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                    //         new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
-                    //     }
-                    //     _ => unreachable!(),
-                    // }
                 }
             }));
         }
