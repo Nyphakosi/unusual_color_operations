@@ -77,7 +77,7 @@ fn angle_reflect(reflect_angle: f32) -> impl Fn(f32)->f32 + Send + 'static {
     // and with algebra, 2A-C mod 360
     move |x| (2.0*reflect_angle - x).rem_euclid(360.0)
 }
-fn linear_piece_any(points: Vec<(f32, f32)>) -> impl Fn(f32)->f32 + Send + 'static { // assumes input is at least length 2
+fn linear_piece_any(points: Vec<(f32, f32)>) -> impl Fn(f32)->f32 + Send + 'static { // assumes input is at least length 1
     let mut points = points.clone();
     points.sort_by(|a, b| a.0.total_cmp(&b.0)); // order by x coordinate
     points.insert(0, (points[points.len()-1].0 - 360.0, points[points.len()-1].1 - 360.0)); // shift the last point leftward to before the modulo bounds
