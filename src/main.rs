@@ -192,13 +192,13 @@ fn main() {
             reflect_angle = inputf32();
         }
         3 => {
-            println!("Input start point 1");
+            println!("sample 1:");
             let tp00 = inputf32();
-            println!("Input end point 1");
+            println!("target 1:");
             let tp01 = inputf32();
-            println!("Input start point 2");
+            println!("sample 2:");
             let tp10 = inputf32();
-            println!("Input end point 2");
+            println!("target 2:");
             let tp11 = inputf32();
             two_point = ((tp00,tp01),(tp10,tp11));
         }
