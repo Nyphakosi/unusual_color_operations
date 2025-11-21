@@ -77,31 +77,32 @@ fn angle_reflect(reflect_angle: f32) -> impl Fn(f32)->f32 + Send + 'static {
     // and with algebra, 2A-C mod 360
     move |x| (2.0*reflect_angle - x).rem_euclid(360.0)
 }
-fn linear_piece_any(points: Vec<(f32, f32)>) -> impl Fn(f32)->f32 + Send + 'static {
+fn linear_piece_any(points: Vec<(f32, f32)>) -> impl Fn(f32)->f32 + Send + 'static { // assumes input is at least length 2
     let mut points = points.clone();
-    let l = points.len();
     points.sort_by(|a, b| a.0.total_cmp(&b.0)); // order by x coordinate
-    let mut slopes: Vec<(f32,f32)> = Vec::new(); // the first and last slopes go over the modulo
-    let mut prev_point: (f32, f32) = points[points.len()-1]; // get the last point
-    points.insert(0, (prev_point.0 - 360.0, prev_point.1 - 360.0)); // shift the last point leftward before the modulo
+    points.insert(0, (points[points.len()-1].0 - 360.0, points[points.len()-1].1 - 360.0)); // shift the last point leftward to before the modulo bounds
+    points.push((points[0].0 + 360.0, points[0].1 + 360.0)); // shift the first point rightward to after the modulo bounds
+    let len = points.len();
     let points = points;
-    for point in &points { // compute the slope between every point, and bias using the first point as reference
+
+    let mut slopes: Vec<(f32,f32)> = Vec::new(); // the first and last slopes go over the modulo
+    let mut prev_point: (f32, f32) = points[0];
+    for point in &points[1..len] { // compute the slope between every point, and bias using the first point as reference
         let slope: f32 = (point.1 - prev_point.1) / (point.0 - prev_point.0);
         let bias = prev_point.1 - slope * prev_point.0;
         slopes.push((slope, bias));
         prev_point = *point;
     }
-    slopes.push((slopes[0].0, prev_point.1 - slopes[0].0 * prev_point.0)); // use precomputed slope, but without shift for bias
     let slopes = slopes;
-    
+
     move |x| {
         let mut index: usize = 0;
-        for i in 0..(l-1) {
+        for i in 0..len-1 {
             if x >= points[i].0 && x < points[i+1].0 {
                 index = i; break;
             }
         }
-        x * slopes[index].0 + slopes[index].1
+        (x * slopes[index].0 + slopes[index].1).rem_euclid(360.0)
     }
 }
 fn linear_piece_two(p1: (f32, f32), p2: (f32, f32)) -> impl Fn(f32)->f32 + Send + 'static {
@@ -202,8 +203,8 @@ fn main() {
             println!("Input any number of points within the rectangle (0,0) to (360,360)");
             println!("Input point (-1,-1) to stop");
             loop {
-                let px = inputf32();
-                let py = inputf32();
+                println!("sample:"); let px = inputf32();
+                println!("target:"); let py = inputf32();
                 if px == -1. && py == -1. { break }
                 n_points.push((px,py));
             }
