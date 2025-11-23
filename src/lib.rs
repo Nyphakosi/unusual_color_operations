@@ -144,7 +144,7 @@ pub fn linear_piece_any(points: Vec<(f32, f32)>) -> impl Fn(f32)->f32 + Send {
     }
     points.sort_by(|a, b| a.0.total_cmp(&b.0)); // order by x coordinate
     points.insert(0, (points[points.len()-1].0 - 360.0, points[points.len()-1].1 - 360.0)); // shift the last point leftward to before the modulo bounds
-    points.push((points[0].0 + 360.0, points[0].1 + 360.0)); // shift the first point rightward to after the modulo bounds
+    points.push((points[1].0 + 360.0, points[1].1 + 360.0)); // shift the first point rightward to after the modulo bounds
     let len = points.len();
     let points = points;
 
