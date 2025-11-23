@@ -78,6 +78,65 @@ pub fn angle_reflect(reflect_angle: f32) -> impl Fn(f32)->f32 + Send {
     move |x| (2.0*reflect_angle - x).rem_euclid(360.0)
 }
 
+// struct LinearFuncMod360 {
+//     points: Vec<(f32, f32)>,
+//     slopes: Vec<(f32, f32)>,
+// }
+// impl LinearFuncMod360 {
+//     fn new() -> LinearFuncMod360 {
+//         LinearFuncMod360 { points: Vec::new(), slopes: Vec::new() }
+//     }
+//     fn add_points(&mut self, new_points: &Vec<(f32, f32)>) {
+//         for point in new_points {
+//             self.points.push(*point);
+//         }
+//     }
+//     fn sort_points(&mut self) {
+//         self.points.sort_by(|a, b| a.0.total_cmp(&b.0)); // order by x coordinate
+//     }
+//     fn loop_modulus(&mut self) { // will insert the point (180.0, 180.0) if empty
+//         let points = &mut self.points; // so i dont have to write self. before every use of the variable in this code
+//         if points.is_empty() {
+//             points.push((180.0, 180.0));
+//         }
+//         points.insert(0, (points[points.len()-1].0 - 360.0, points[points.len()-1].1 - 360.0)); // shift the last point leftward to before the modulo bounds
+//         points.push((points[0].0 + 360.0, points[0].1 + 360.0)); // shift the first point rightward to after the modulo bounds
+//     }
+//     fn compute_slopes(&mut self) {
+//         let points = &mut self.points;
+//         let slopes = &mut self.slopes;
+//         let mut prev_point: (f32, f32) = points[0];
+//         for point in &points[1..points.len()] { // compute the slope between every point, and bias using the first point as reference
+//             let slope: f32 = (point.1 - prev_point.1) / (point.0 - prev_point.0);
+//             let bias = prev_point.1 - slope * prev_point.0;
+//             slopes.push((slope, bias));
+//             prev_point = *point;
+//         }
+//     }
+//     fn create_func(&self) -> impl Fn(f32)->f32 + Send + use<> {
+//         let points = self.points.clone();
+//         let slopes = self.slopes.clone();
+//         move |x| {
+//             let x = (x - points[0].0).rem_euclid(360.0) + points[0].0;
+//             let mut index: usize = 0;
+//             for i in 0..points.len()-1 {
+//                 if x >= points[i].0 && x < points[i+1].0 {
+//                     index = i; break;
+//                 }
+//             }
+//             (x * slopes[index].0 + slopes[index].1).rem_euclid(360.0)
+//         }
+//     }
+// }
+// pub fn linear_piece_any(points: Vec<(f32, f32)>) -> impl Fn(f32)->f32 + Send {
+//     let mut lnf = LinearFuncMod360::new();
+//     lnf.add_points(&points);
+//     lnf.sort_points();
+//     lnf.loop_modulus();
+//     lnf.compute_slopes();
+//     lnf.create_func()
+// }
+
 pub fn linear_piece_any(points: Vec<(f32, f32)>) -> impl Fn(f32)->f32 + Send {
     let mut points = points.clone();
     if points.is_empty() {
@@ -100,6 +159,7 @@ pub fn linear_piece_any(points: Vec<(f32, f32)>) -> impl Fn(f32)->f32 + Send {
     let slopes = slopes;
 
     move |x| {
+        let x = (x - points[0].0).rem_euclid(360.0) + points[0].0;
         let mut index: usize = 0;
         for i in 0..len-1 {
             if x >= points[i].0 && x < points[i+1].0 {

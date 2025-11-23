@@ -147,7 +147,9 @@ fn main() {
     println!("Done in {}ms", timer.elapsed().as_millis());
 
     let timer = std::time::Instant::now();
-    new_img.lock().unwrap().save("output.png").unwrap();
+    let mut outpath = file_path.clone();
+    outpath.push_str("_output.png");
+    new_img.lock().unwrap().save(outpath).unwrap();
     println!("Saved in {}ms", timer.elapsed().as_millis());
 
     println!("Press enter to end program");
