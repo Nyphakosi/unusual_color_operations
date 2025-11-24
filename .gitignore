@@ -6,4 +6,8 @@
 .vscode/
 .sublime-*
 
+# Rustc/Cargo build artifacts
 /target
+
+# Test image outputs
+*_output.png
