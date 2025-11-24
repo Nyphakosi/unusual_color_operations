@@ -1,8 +1,33 @@
-use std::{env, sync::{Arc, Mutex}, thread};
-use image::{ColorType, DynamicImage, GenericImage, GenericImageView, Rgb, Rgba};
+use std::{
+    env,
+    sync::{Arc, Mutex, mpsc::{Sender as Tx, Receiver as Rx}},
+    thread::ScopedJoinHandle,
+};
+use image::{Rgb, Rgba, buffer::{Pixels, PixelsMut}};
 use unusual_color_operations as uco;
 
 const IDENTITY: fn(f32)->f32 = |x| x;
+type Amrx<T> = Arc<Mutex<Rx<T>>>;
+
+fn thrpool<T: Send, U: Send, W: Send, R>(
+    nthr: usize,
+    worker: impl Sync + Fn(Amrx<T>, Tx<U>) -> W,
+    manager: impl for<'scope>
+        FnOnce(Tx<T>, Rx<U>, Box<[ScopedJoinHandle<'scope, W>]>) -> R,
+) -> R {
+    let worker = &worker;
+    std::thread::scope(|scope| {
+        let (task_tx, task_rx) = std::sync::mpsc::channel();
+        let (res_tx, res_rx) = std::sync::mpsc::channel();
+        let task_rx = Arc::new(Mutex::new(task_rx));
+        let handles: Box<[_]> = (0..nthr).map(|_| {
+            let (task_rx, res_tx) = (Arc::clone(&task_rx), res_tx.clone());
+            scope.spawn(move || worker(task_rx, res_tx))
+        }).collect();
+        drop((task_rx, res_tx));
+        manager(task_tx, res_rx, handles)
+    })
+}
 
 fn main() {
 
@@ -20,8 +45,8 @@ fn main() {
     let core_count: u32 = num_cpus::get() as u32;
     let file_path: &String = &args[1];
     let img = Arc::new(image::open(file_path).expect("Failed to open image"));
-    let (width, height) = img.dimensions();
-    let new_img = Arc::new(Mutex::new(DynamicImage::new(width, height, ColorType::Rgba8)));
+    // let (width, height) = img.dimensions();
+    // let new_img = Arc::new(Mutex::new(DynamicImage::new(width, height, ColorType::Rgba8)));
 
     println!("Image loaded in {}ms", timer.elapsed().as_millis());
 
@@ -76,8 +101,6 @@ fn main() {
     let reflect_angle = reflect_angle;
     let two_point = two_point;
 
-    let mut handles: Vec<thread::JoinHandle<()>> = Vec::new();
-
     let timer = std::time::Instant::now();
 
     let operation: Arc<dyn Fn(f32)->f32 + Send + Sync> = match selection {
@@ -89,67 +112,54 @@ fn main() {
     };
 
     println!("Processing...");
-    // process main image
-    for y in 0..height/core_count {
-        for y_inner in 0..core_count { // divide image rows by number of cores in device
-            let img_clone = Arc::clone(&img);
-            let new_img_clone = Arc::clone(&new_img);
-            let inloop_operation = operation.clone();
-            handles.push(thread::spawn(move || {
-                for x in 0..width {
-                    let pixel = img_clone.get_pixel(x, y*core_count+y_inner);
-                    let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
-                    match selection {
-                        (1..=4) => { // hue reflection, phos' operation, two point shift
+
+    let isrc = img.as_ref().clone().into_rgba8();
+    let mut ides = image::RgbaImage::new(img.width(), img.height());
+    let op = &operation;
+    thrpool(
+        core_count as usize,
+        |task_rx: Amrx<Option<(Pixels<_>, PixelsMut<_>)>>, _res_tx: Tx<()>| -> () {
+            while let Some((row_in, row_out)) =
+                task_rx.lock().expect("wtf").recv().expect("wtf")
+            {
+                for (px_in, px_out) in <Pixels<'_, Rgba<u8>> as Iterator>::zip(row_in, row_out) {
+                    let pxl = Rgb([px_in[0], px_in[1], px_in[2]]);
+                    *px_out = match selection {
+                        (1..=4) => {
                             let hsv = uco::rgb_to_hsv(&pxl);
-                            let new_hsv = uco::Hsv([inloop_operation(hsv.0[0]), hsv.0[1], hsv.0[2]]);
+                            let new_hsv = uco::Hsv([op(hsv.0[0]), hsv.0[1], hsv.0[2]]);
                             let new_rgb = uco::hsv_to_rgb(&new_hsv);
-                            let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                            new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
+                            Rgba([new_rgb[0], new_rgb[1], new_rgb[2], px_in[3]])
                         }
-                        (-2..=-1) => { // greater and lesser color conjugation
+                        (-2..=-1) => {
                             let new_rgb = unusual_color_operations::rgb_conjugate(&pxl, selection == -1);
-                            let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                            new_img_clone.lock().unwrap().put_pixel(x, y*core_count+y_inner, new_pixel);
+                            Rgba([new_rgb[0], new_rgb[1], new_rgb[2], px_in[3]])
                         }
-                        _ => unreachable!()
+                        _ => unreachable!(),
                     }
                 }
-            }));
-        }
-    }
-    // process remainder of image
-    for y in height/core_count*core_count..height {
-        for x in 0..width {
-            let pixel = img.get_pixel(x, y);
-            let pxl: Rgb<u8> = Rgb([pixel[0], pixel[1], pixel[2]]);
-            match selection {
-                (1..=4) => {
-                    let hsv = uco::rgb_to_hsv(&pxl);
-                    let new_hsv = uco::Hsv([operation(hsv.0[0]), hsv.0[1], hsv.0[2]]);
-                    let new_rgb = uco::hsv_to_rgb(&new_hsv);
-                    let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                    new_img.lock().unwrap().put_pixel(x, y, new_pixel);
-                }
-                (-2..=-1) => {
-                    let new_rgb = unusual_color_operations::rgb_conjugate(&pxl, selection == -1);
-                    let new_pixel = Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pixel[3]]);
-                    new_img.lock().unwrap().put_pixel(x, y, new_pixel);
-                }
-                _ => unreachable!(),
             }
-        }
-    }
+        },
+        |task_tx, _res_rx, handles| {
+            for row_pair in isrc.rows().zip(ides.rows_mut()) {
+                task_tx.send(Some(row_pair)).expect("wtf");
+            }
+            for _ in 0..handles.len() {
+                task_tx.send(None).expect("wtf");
+            }
+            for h in handles.into_iter() {
+                () = h.join()?;
+            }
+            Ok::<_, Box<dyn std::any::Any + Send>>(())
+        },
+    ).expect("Failed??");
 
-    for handle in handles {
-        handle.join().unwrap();
-    }
     println!("Done in {}ms", timer.elapsed().as_millis());
 
     let timer = std::time::Instant::now();
     let mut outpath = file_path.clone();
     outpath.push_str("_output.png");
-    new_img.lock().unwrap().save(outpath).unwrap();
+    ides.save(outpath).unwrap();
     println!("Saved in {}ms", timer.elapsed().as_millis());
 
     println!("Press enter to end program");

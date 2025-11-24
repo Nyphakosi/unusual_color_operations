@@ -1,1 +1,9 @@
+# MacOS filesystem metadata
+.DS_Store
+.fseventsd/
+
+# VSCode and SublimeText metadata
+.vscode/
+.sublime-*
+
 /target
