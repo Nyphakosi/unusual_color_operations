@@ -72,7 +72,7 @@ fn main() {
             }
         }
         _ => ()
-    } 
+    }
     let reflect_angle = reflect_angle;
     let two_point = two_point;
 
