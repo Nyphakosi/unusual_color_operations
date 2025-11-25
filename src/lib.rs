@@ -297,37 +297,7 @@ pub fn rgb_conjugate_wrapper(minmax: bool) -> impl Fn(Rgba<u8>)->Rgba<u8> {
     }
 }
 
-pub fn inputf32() -> f32 {
-    loop {
-        let mut value = String::new();
-
-        io::stdin()
-            .read_line(&mut value)
-            .expect("Failed to read line");
-
-        match value.trim().parse() {
-            Ok(num) => return num,
-            Err(_) => continue,
-        };
-    }
-}
-
-pub fn inputi8() -> i8 {
-    loop {
-        let mut value = String::new();
-
-        io::stdin()
-            .read_line(&mut value)
-            .expect("Failed to read line");
-
-        match value.trim().parse() {
-            Ok(num) => return num,
-            Err(_) => continue,
-        };
-    }
-}
-
-pub fn inputstr() -> String {
+pub fn input<T: std::str::FromStr>() -> T {
     loop {
         let mut value = String::new();
 

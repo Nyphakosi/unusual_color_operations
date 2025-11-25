@@ -14,7 +14,7 @@ fn main() {
         println!("Usage: input a file path");
         println!("Example: cargo run -- folder/imgname.png");
         println!("Press enter to end program");
-        uco::inputstr();
+        uco::input::<String>();
         return;
     }
 
@@ -22,8 +22,6 @@ fn main() {
 
     let file_path: &String = &args[1];
     let img = Arc::new(image::open(file_path).expect("Failed to open image"));
-    // let (width, height) = img.dimensions();
-    // let new_img = Arc::new(Mutex::new(DynamicImage::new(width, height, ColorType::Rgba8)));
 
     println!("Image loaded in {}ms", timer.elapsed().as_millis());
 
@@ -36,7 +34,7 @@ fn main() {
         println!("4: N Point Shift, same as above but for any input points");
         println!("-1: Greater Color Conjugate, swap the larger two color channels");
         println!("-2: Lesser Color Conjugate, swap the smaller two color channels");
-        selection = uco::inputi8();
+        selection = uco::input::<i8>();
         match selection {
             -2..=4 => break,
             _ => continue, // absolutely do not allow invalid inputs
@@ -50,25 +48,25 @@ fn main() {
     match selection {
         1 => {
             println!("Input Reflection Angle:");
-            reflect_angle = uco::inputf32();
+            reflect_angle = uco::input::<f32>();
         }
         3 => {
             println!("sample 1:");
-            let tp00 = uco::inputf32();
+            let tp00 = uco::input::<f32>();
             println!("target 1:");
-            let tp01 = uco::inputf32();
+            let tp01 = uco::input::<f32>();
             println!("sample 2:");
-            let tp10 = uco::inputf32();
+            let tp10 = uco::input::<f32>();
             println!("target 2:");
-            let tp11 = uco::inputf32();
+            let tp11 = uco::input::<f32>();
             two_point = ((tp00,tp01),(tp10,tp11));
         }
         4 => {
             println!("Input any number of points within the rectangle (0,0) to (360,360)");
             println!("Input point (-1,-1) to stop");
             loop {
-                println!("sample:"); let px = uco::inputf32();
-                println!("target:"); let py = uco::inputf32();
+                println!("sample:"); let px = uco::input::<f32>();
+                println!("target:"); let py = uco::input::<f32>();
                 if px == -1. && py == -1. { break }
                 n_points.push((px,py));
             }
@@ -89,7 +87,7 @@ fn main() {
     };
     let operation: Arc<dyn Fn(Rgba<u8>)->Rgba<u8> + Send + Sync> = match selection {
         (1..=4) => { 
-            Arc::new(uco::process_hue(Arc::clone(&op))) 
+            Arc::new(uco::process_hue(Arc::clone(&op)))
         }
         (-2..=-1) => {
             Arc::new(uco::rgb_conjugate_wrapper(selection == -1))
@@ -111,5 +109,5 @@ fn main() {
     println!("Saved in {}ms", timer.elapsed().as_millis());
 
     println!("Press enter to end program");
-    uco::inputstr();
+    uco::input::<String>();
 }
