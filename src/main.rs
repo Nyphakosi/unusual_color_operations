@@ -1,33 +1,11 @@
 use std::{
     env,
-    sync::{Arc, Mutex, mpsc::{Sender as Tx, Receiver as Rx}},
-    thread::ScopedJoinHandle,
+    sync::Arc,
 };
-use image::{Rgb, Rgba, buffer::{Pixels, PixelsMut}};
+use image::Rgba;
 use unusual_color_operations as uco;
 
 const IDENTITY: fn(f32)->f32 = |x| x;
-type Amrx<T> = Arc<Mutex<Rx<T>>>;
-
-fn thrpool<T: Send, U: Send, W: Send, R>(
-    nthr: usize,
-    worker: impl Sync + Fn(Amrx<T>, Tx<U>) -> W,
-    manager: impl for<'scope>
-        FnOnce(Tx<T>, Rx<U>, Box<[ScopedJoinHandle<'scope, W>]>) -> R,
-) -> R {
-    let worker = &worker;
-    std::thread::scope(|scope| {
-        let (task_tx, task_rx) = std::sync::mpsc::channel();
-        let (res_tx, res_rx) = std::sync::mpsc::channel();
-        let task_rx = Arc::new(Mutex::new(task_rx));
-        let handles: Box<[_]> = (0..nthr).map(|_| {
-            let (task_rx, res_tx) = (Arc::clone(&task_rx), res_tx.clone());
-            scope.spawn(move || worker(task_rx, res_tx))
-        }).collect();
-        drop((task_rx, res_tx));
-        manager(task_tx, res_rx, handles)
-    })
-}
 
 fn main() {
 
@@ -42,7 +20,6 @@ fn main() {
 
     let timer = std::time::Instant::now();
 
-    let core_count: u32 = num_cpus::get() as u32;
     let file_path: &String = &args[1];
     let img = Arc::new(image::open(file_path).expect("Failed to open image"));
     // let (width, height) = img.dimensions();
@@ -103,56 +80,27 @@ fn main() {
 
     let timer = std::time::Instant::now();
 
-    let operation: Arc<dyn Fn(f32)->f32 + Send + Sync> = match selection {
+    let op: Arc<dyn Fn(f32)->f32 + Send + Sync> = match selection {
         1 => Arc::new(uco::angle_reflect(reflect_angle)),
         2 => Arc::new(uco::linear_piece_two((120., 165.), (300., 285.))),
         3 => Arc::new(uco::linear_piece_two(two_point.0, two_point.1)),
         4 => Arc::new(uco::linear_piece_any(n_points)),
         _ => Arc::new(IDENTITY),
     };
+    let operation: Arc<dyn Fn(Rgba<u8>)->Rgba<u8> + Send + Sync> = match selection {
+        (1..=4) => { 
+            Arc::new(uco::process_hue(&Arc::clone(&op))) 
+        }
+        (-2..=-1) => {
+            Arc::new(uco::rgb_conjugate_wrapper(selection == -1))
+        }
+        _ => unreachable!(),
+    };
 
     println!("Processing...");
 
     let isrc = img.as_ref().clone().into_rgba8();
-    let mut ides = image::RgbaImage::new(img.width(), img.height());
-    let op = &operation;
-    thrpool(
-        core_count as usize,
-        |task_rx: Amrx<Option<(Pixels<_>, PixelsMut<_>)>>, _res_tx: Tx<()>| -> () {
-            while let Some((row_in, row_out)) =
-                task_rx.lock().expect("wtf").recv().expect("wtf")
-            {
-                for (px_in, px_out) in <Pixels<'_, Rgba<u8>> as Iterator>::zip(row_in, row_out) {
-                    let pxl = Rgb([px_in[0], px_in[1], px_in[2]]);
-                    *px_out = match selection {
-                        (1..=4) => {
-                            let hsv = uco::rgb_to_hsv(&pxl);
-                            let new_hsv = uco::Hsv([op(hsv.0[0]), hsv.0[1], hsv.0[2]]);
-                            let new_rgb = uco::hsv_to_rgb(&new_hsv);
-                            Rgba([new_rgb[0], new_rgb[1], new_rgb[2], px_in[3]])
-                        }
-                        (-2..=-1) => {
-                            let new_rgb = unusual_color_operations::rgb_conjugate(&pxl, selection == -1);
-                            Rgba([new_rgb[0], new_rgb[1], new_rgb[2], px_in[3]])
-                        }
-                        _ => unreachable!(),
-                    }
-                }
-            }
-        },
-        |task_tx, _res_rx, handles| {
-            for row_pair in isrc.rows().zip(ides.rows_mut()) {
-                task_tx.send(Some(row_pair)).expect("wtf");
-            }
-            for _ in 0..handles.len() {
-                task_tx.send(None).expect("wtf");
-            }
-            for h in handles.into_iter() {
-                () = h.join()?;
-            }
-            Ok::<_, Box<dyn std::any::Any + Send>>(())
-        },
-    ).expect("Failed??");
+    let ides = uco::process_image(&isrc, operation);
 
     println!("Done in {}ms", timer.elapsed().as_millis());
 

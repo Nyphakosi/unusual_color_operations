@@ -1,6 +1,79 @@
-use std::io;
+use std::{
+    io,
+    sync::{Arc, Mutex, mpsc::{Sender as Tx, Receiver as Rx}},
+    thread::ScopedJoinHandle,
+};
+use image::{Rgb, Rgba, buffer::{Pixels, PixelsMut}};
 
-use image::Rgb;
+type Amrx<T> = Arc<Mutex<Rx<T>>>;
+
+pub fn thrpool<T: Send, U: Send, W: Send, R>(
+    nthr: usize,
+    worker: impl Sync + Fn(Amrx<T>, Tx<U>) -> W,
+    manager: impl for<'scope>
+        FnOnce(Tx<T>, Rx<U>, Box<[ScopedJoinHandle<'scope, W>]>) -> R,
+) -> R {
+    let worker = &worker;
+    std::thread::scope(|scope| {
+        let (task_tx, task_rx) = std::sync::mpsc::channel();
+        let (res_tx, res_rx) = std::sync::mpsc::channel();
+        let task_rx = Arc::new(Mutex::new(task_rx));
+        let handles: Box<[_]> = (0..nthr).map(|_| {
+            let (task_rx, res_tx) = (Arc::clone(&task_rx), res_tx.clone());
+            scope.spawn(move || worker(task_rx, res_tx))
+        }).collect();
+        drop((task_rx, res_tx));
+        manager(task_tx, res_rx, handles)
+    })
+}
+
+pub fn process_image(isrc: &image::ImageBuffer<Rgba<u8>, Vec<u8>>, op: Arc<dyn Fn(Rgba<u8>)->Rgba<u8> + Send + Sync>) -> image::ImageBuffer<Rgba<u8>, Vec<u8>> {
+    let core_count = num_cpus::get();
+    let mut ides = image::RgbaImage::new(isrc.width(), isrc.height());
+    let op = &op;
+    thrpool(
+        core_count,
+        |task_rx: Amrx<Option<(Pixels<_>, PixelsMut<_>)>>, _res_tx: Tx<()>| -> () {
+            while let Some((row_in, row_out)) =
+                task_rx.lock().expect("wtf").recv().expect("wtf")
+            {
+                for (px_in, px_out) in <Pixels<'_, Rgba<u8>> as Iterator>::zip(row_in, row_out) {
+                    *px_out = op(*px_in)
+                }
+            }
+        },
+        |task_tx, _res_rx, handles| {
+            for row_pair in isrc.rows().zip(ides.rows_mut()) {
+                task_tx.send(Some(row_pair)).expect("wtf");
+            }
+            for _ in 0..handles.len() {
+                task_tx.send(None).expect("wtf");
+            }
+            for h in handles.into_iter() {
+                () = h.join()?;
+            }
+            Ok::<_, Box<dyn std::any::Any + Send>>(())
+        },
+    ).expect("Failed??");
+    ides
+}
+
+pub fn process_hue(op: &Arc<dyn Fn(f32)->f32 + Send + Sync>) -> impl Fn(Rgba<u8>)->Rgba<u8> {
+    move |px_in: Rgba<u8>| {
+        let pxl = Rgb([px_in[0], px_in[1], px_in[2]]);
+        let hsv = rgb_to_hsv(&pxl);
+        let new_hsv = Hsv([op(hsv.0[0]), hsv.0[1], hsv.0[2]]);
+        let new_rgb = hsv_to_rgb(&new_hsv);
+        Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pxl[3]])
+    }
+}
+
+pub fn process_rgb(op: &Arc<dyn Fn(Rgb<u8>)->Rgb<u8> + Send + Sync>) -> impl Fn(Rgba<u8>)->Rgba<u8> {
+    move |px_in: Rgba<u8>| {
+        let new_rgb = op(Rgb([px_in[0], px_in[1], px_in[2]]));
+        Rgba([new_rgb[0], new_rgb[1], new_rgb[2], px_in[3]])
+    }
+}
 
 // rgb↔hsv conversion functions taken from https://gist.github.com/bmgxyz/a5b5b58e492cbca099b468eddd04cc97
 
@@ -203,6 +276,24 @@ pub fn rgb_conjugate(pixel: &Rgb<u8>, minmax: bool) -> Rgb<u8> {
         1 => Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]), // swaps r and b
         2 => Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]), // swaps r and g
         _ => Rgb([0, 0, 0]),
+    }
+}
+
+pub fn rgb_conjugate_wrapper(minmax: bool) -> impl Fn(Rgba<u8>)->Rgba<u8> {
+    move |pxl: Rgba<u8>| {
+        let pixel: Rgb<u8> = Rgb([pxl[0], pxl[1], pxl[2]]);
+        let mut sorted: Vec<u8> = pixel.0.to_vec();
+        sorted.sort();
+        let sorted = sorted;
+
+        let channel_position = pixel.0.iter().position(|&p| p == sorted[match minmax {true => 0, false => 2}]).unwrap();
+        let new_rgb = match channel_position {
+            0 => Rgb([pixel.0[0], pixel.0[2], pixel.0[1]]), // swaps g and b
+            1 => Rgb([pixel.0[2], pixel.0[1], pixel.0[0]]), // swaps r and b
+            2 => Rgb([pixel.0[1], pixel.0[0], pixel.0[2]]), // swaps r and g
+            _ => Rgb([0, 0, 0]),
+        };
+        Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pxl[3]])
     }
 }
 
