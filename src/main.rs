@@ -89,7 +89,7 @@ fn main() {
     };
     let operation: Arc<dyn Fn(Rgba<u8>)->Rgba<u8> + Send + Sync> = match selection {
         (1..=4) => { 
-            Arc::new(uco::process_hue(&Arc::clone(&op))) 
+            Arc::new(uco::process_hue(Arc::clone(&op))) 
         }
         (-2..=-1) => {
             Arc::new(uco::rgb_conjugate_wrapper(selection == -1))

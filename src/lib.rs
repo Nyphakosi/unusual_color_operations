@@ -58,13 +58,13 @@ pub fn process_image(isrc: &image::ImageBuffer<Rgba<u8>, Vec<u8>>, op: Arc<dyn F
     ides
 }
 
-pub fn process_hue(op: &Arc<dyn Fn(f32)->f32 + Send + Sync>) -> impl Fn(Rgba<u8>)->Rgba<u8> {
+pub fn process_hue(op: Arc<dyn Fn(f32)->f32 + Send + Sync>) -> impl Fn(Rgba<u8>)->Rgba<u8> {
     move |px_in: Rgba<u8>| {
         let pxl = Rgb([px_in[0], px_in[1], px_in[2]]);
         let hsv = rgb_to_hsv(&pxl);
         let new_hsv = Hsv([op(hsv.0[0]), hsv.0[1], hsv.0[2]]);
         let new_rgb = hsv_to_rgb(&new_hsv);
-        Rgba([new_rgb[0], new_rgb[1], new_rgb[2], pxl[3]])
+        Rgba([new_rgb[0], new_rgb[1], new_rgb[2], px_in[3]])
     }
 }
 
